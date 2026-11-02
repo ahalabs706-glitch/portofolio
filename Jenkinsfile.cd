@@ -1,0 +1,155 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(
+            name: 'API_IMAGE_REPO',
+            defaultValue: 'aha706/devfolio-api-dev',
+            description: 'Docker Hub repository image API yang dikirim oleh CI'
+        )
+        string(
+            name: 'WEB_IMAGE_REPO',
+            defaultValue: 'aha706/devfolio-web-dev',
+            description: 'Docker Hub repository image web yang dikirim oleh CI'
+        )
+        string(
+            name: 'IMAGE_TAG',
+            defaultValue: 'latest',
+            description: 'Tag image dari BUILD_NUMBER CI'
+        )
+    }
+
+    environment {
+        REGISTRY = 'docker.io'
+        DEPLOY_HOST = '13.211.77.56'
+        DEPLOY_USER = 'ubuntu'
+        APP_DIR = '/home/ubuntu/apps/devfolio'
+        SSH_CREDENTIALS_ID = 'deploy-ssh-key'
+        COMPOSE_FILE = 'docker-compose.prod.yml'
+    }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        skipDefaultCheckout(true)
+    }
+
+    stages {
+        stage('Validate Parameters') {
+            steps {
+                script {
+                    if (!params.IMAGE_TAG?.trim() ||
+                        !(params.IMAGE_TAG ==~ /^[0-9]+$/)) {
+                        error('IMAGE_TAG harus berisi BUILD_NUMBER CI yang valid.')
+                    }
+
+                    if (!(params.API_IMAGE_REPO in [
+                        'aha706/devfolio-api-dev',
+                        'aha706/devfolio-api'
+                    ])) {
+                        error("Repository image API tidak diizinkan: ${params.API_IMAGE_REPO}")
+                    }
+
+                    if (!(params.WEB_IMAGE_REPO in [
+                        'aha706/devfolio-web-dev',
+                        'aha706/devfolio-web'
+                    ])) {
+                        error("Repository image web tidak diizinkan: ${params.WEB_IMAGE_REPO}")
+                    }
+
+                    if (env.BRANCH_NAME == 'develop' &&
+                        (params.API_IMAGE_REPO != 'aha706/devfolio-api-dev' ||
+                         params.WEB_IMAGE_REPO != 'aha706/devfolio-web-dev')) {
+                        error('Branch develop hanya boleh deploy image dev.')
+                    }
+
+                    if (env.BRANCH_NAME == 'main' &&
+                        (params.API_IMAGE_REPO != 'aha706/devfolio-api' ||
+                         params.WEB_IMAGE_REPO != 'aha706/devfolio-web')) {
+                        error('Branch main hanya boleh deploy image production.')
+                    }
+
+                    env.API_DEPLOY_IMAGE =
+                        "${params.API_IMAGE_REPO}:${params.IMAGE_TAG}"
+                    env.WEB_DEPLOY_IMAGE =
+                        "${params.WEB_IMAGE_REPO}:${params.IMAGE_TAG}"
+
+                    echo "Branch       : ${env.BRANCH_NAME}"
+                    echo "Deploy API   : ${env.API_DEPLOY_IMAGE}"
+                    echo "Deploy Web   : ${env.WEB_DEPLOY_IMAGE}"
+                }
+            }
+        }
+
+        stage('Checkout CD Configuration') {
+            steps {
+                checkout scm
+                sh '''
+                    set -eu
+                    test -f "${COMPOSE_FILE}"
+                '''
+            }
+        }
+
+        stage('Deploy to Ubuntu') {
+            steps {
+                sshagent(credentials: [env.SSH_CREDENTIALS_ID]) {
+                    sh '''
+                        set -eu
+
+                        # Kirim hanya konfigurasi Compose.
+                        # File .env di server tidak ditimpa.
+                        rsync -az \
+                            "$COMPOSE_FILE" \
+                            "${DEPLOY_USER}@${DEPLOY_HOST}:${APP_DIR}/"
+
+                        echo "Validasi konfigurasi Compose..."
+                        ssh -o BatchMode=yes \
+                            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+                            "cd '${APP_DIR}' &&
+                             API_IMAGE_REPO='${API_IMAGE_REPO}' \
+                             WEB_IMAGE_REPO='${WEB_IMAGE_REPO}' \
+                             IMAGE_TAG='${IMAGE_TAG}' \
+                             docker compose -f '${COMPOSE_FILE}' config -q"
+
+                        echo "Pull image ${API_DEPLOY_IMAGE} dan ${WEB_DEPLOY_IMAGE}..."
+                        ssh -o BatchMode=yes \
+                            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+                            "cd '${APP_DIR}' &&
+                             API_IMAGE_REPO='${API_IMAGE_REPO}' \
+                             WEB_IMAGE_REPO='${WEB_IMAGE_REPO}' \
+                             IMAGE_TAG='${IMAGE_TAG}' \
+                             docker compose -f '${COMPOSE_FILE}' pull api web"
+
+                        echo "Menjalankan deployment..."
+                        ssh -o BatchMode=yes \
+                            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+                            "cd '${APP_DIR}' &&
+                             API_IMAGE_REPO='${API_IMAGE_REPO}' \
+                             WEB_IMAGE_REPO='${WEB_IMAGE_REPO}' \
+                             IMAGE_TAG='${IMAGE_TAG}' \
+                             docker compose -f '${COMPOSE_FILE}' up -d --no-build --remove-orphans"
+
+                        echo "Status container:"
+                        ssh -o BatchMode=yes \
+                            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+                            "cd '${APP_DIR}' &&
+                             API_IMAGE_REPO='${API_IMAGE_REPO}' \
+                             WEB_IMAGE_REPO='${WEB_IMAGE_REPO}' \
+                             IMAGE_TAG='${IMAGE_TAG}' \
+                             docker compose -f '${COMPOSE_FILE}' ps"
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "CD SUCCESS: ${env.API_DEPLOY_IMAGE} & ${env.WEB_DEPLOY_IMAGE}"
+        }
+        failure {
+            echo 'CD FAILED: Periksa Console Output Jenkins.'
+        }
+    }
+}

@@ -1,0 +1,423 @@
+pipeline {
+
+    agent any
+
+    environment {
+        REGISTRY         = 'docker.io'
+        API_DOCKER_DEV   = 'aha706/devfolio-api-dev'
+        API_DOCKER_PROD  = 'aha706/devfolio-api'
+        WEB_DOCKER_DEV   = 'aha706/devfolio-web-dev'
+        WEB_DOCKER_PROD  = 'aha706/devfolio-web'
+    }
+
+    options {
+        timestamps()
+
+        disableConcurrentBuilds()
+        skipDefaultCheckout(true)
+
+        buildDiscarder(
+            logRotator(
+                numToKeepStr: '10'
+            )
+        )
+    }
+
+    stages {
+
+        // ==========================================
+        // 1. Checkout
+        // ==========================================
+
+        stage('Checkout') {
+            steps {
+                cleanWs()
+                checkout scm
+
+                script {
+                    env.AUTHOR_NAME = sh(
+                        script: 'git log -1 --format=%aN',
+                        returnStdout: true
+                    ).trim()
+
+                    env.COMMIT_MESSAGE = sh(
+                        script: 'git log -1 --format=%s',
+                        returnStdout: true
+                    ).trim()
+
+                    echo "Branch: ${env.BRANCH_NAME}"
+                    echo "Commit: ${env.GIT_COMMIT}"
+                    echo "Author: ${env.AUTHOR_NAME}"
+                    echo "Message: ${env.COMMIT_MESSAGE}"
+                }
+            }
+        }
+
+
+        // ==========================================
+        // 2. Prepare Docker Image
+        // ==========================================
+
+        stage('Prepare Image') {
+
+            steps {
+
+                script {
+
+                    if (env.BRANCH_NAME == 'main') {
+
+                        env.API_DOCKER_NAME = env.API_DOCKER_PROD
+                        env.WEB_DOCKER_NAME = env.WEB_DOCKER_PROD
+                        env.DEPLOY_ENV = 'production'
+
+                    } else if (env.BRANCH_NAME == 'develop') {
+
+                        env.API_DOCKER_NAME = env.API_DOCKER_DEV
+                        env.WEB_DOCKER_NAME = env.WEB_DOCKER_DEV
+                        env.DEPLOY_ENV = 'dev'
+
+                    } else {
+
+                        error(
+                            "Unsupported branch for CI/CD: ${env.BRANCH_NAME}"
+                        )
+                    }
+
+                    env.API_IMAGE = "${env.API_DOCKER_NAME}:${env.BUILD_NUMBER}"
+                    env.WEB_IMAGE = "${env.WEB_DOCKER_NAME}:${env.BUILD_NUMBER}"
+
+                    echo """
+                    ==========================================
+                    DOCKER IMAGE
+                    ==========================================
+
+                    Branch      : ${env.BRANCH_NAME}
+                    Environment : ${env.DEPLOY_ENV}
+                    API Image   : ${env.API_IMAGE}
+                    Web Image   : ${env.WEB_IMAGE}
+
+                    ==========================================
+                    """
+                }
+            }
+        }
+
+
+        // ==========================================
+        // 3. Lint
+        // ==========================================
+
+        stage('Lint') {
+
+            agent {
+                docker {
+                    image 'node:24-alpine'
+                    reuseNode true
+                    args '-e HOME=/tmp'
+                }
+            }
+
+            steps {
+
+                sh '''
+
+                    set -e
+
+                    echo "=========================================="
+                    echo "Node Version"
+                    echo "=========================================="
+
+                    node --version
+                    npm --version
+
+                    npm ci
+
+                    echo "=========================================="
+                    echo "Running ESLint"
+                    echo "=========================================="
+
+                    npm run lint
+
+                    echo "=========================================="
+                    echo "Running Prettier check"
+                    echo "=========================================="
+
+                    npm run format:check
+
+                    echo "=========================================="
+                    echo "Running TypeScript typecheck"
+                    echo "=========================================="
+
+                    npm run typecheck
+
+                    echo "=========================================="
+                    echo "Lint SUCCESS"
+                    echo "=========================================="
+                '''
+            }
+        }
+
+
+        // ==========================================
+        // 4. Unit Test
+        // ==========================================
+
+        stage('Unit Test') {
+
+            agent {
+                docker {
+                    image 'node:24-alpine'
+                    reuseNode true
+                    args '-e HOME=/tmp'
+                }
+            }
+
+            steps {
+
+                sh '''
+
+                    set -e
+
+                    echo "=========================================="
+                    echo "Running Unit Tests"
+                    echo "=========================================="
+
+                    npm test
+
+                    echo "=========================================="
+                    echo "Unit Test SUCCESS"
+                    echo "=========================================="
+                '''
+            }
+        }
+
+
+        // ==========================================
+        // 5. Build Docker Image
+        // ==========================================
+
+        stage('Build Image') {
+
+            steps {
+
+                sh '''
+
+                    set -e
+
+                    echo "=========================================="
+                    echo "Building Docker Images"
+                    echo "=========================================="
+
+                    echo "API Image: ${API_IMAGE}"
+                    DOCKER_BUILDKIT=1 docker build \
+                        --pull \
+                        -f apps/api/Dockerfile.prod \
+                        -t "${API_IMAGE}" \
+                        .
+
+                    echo "Web Image: ${WEB_IMAGE}"
+                    DOCKER_BUILDKIT=1 docker build \
+                        --pull \
+                        -f apps/web/Dockerfile.prod \
+                        -t "${WEB_IMAGE}" \
+                        .
+
+                    echo "=========================================="
+                    echo "Docker Build SUCCESS"
+                    echo "=========================================="
+
+                    docker images "${API_DOCKER_NAME}"
+                    docker images "${WEB_DOCKER_NAME}"
+                '''
+            }
+        }
+
+
+        // ==========================================
+        // 6. Trivy Vulnerability Scan
+        // ==========================================
+
+        stage('Trivy Scan') {
+
+            steps {
+
+                sh '''
+
+                    set -e
+
+                    echo "=========================================="
+                    echo "Trivy Vulnerability Scan"
+                    echo "=========================================="
+
+                    for image in "${API_IMAGE}" "${WEB_IMAGE}"; do
+                        trivy image \
+                            --severity HIGH,CRITICAL \
+                            --exit-code 1 \
+                            --ignore-unfixed \
+                            "${image}"
+                    done
+
+                    echo "=========================================="
+                    echo "Trivy Scan SUCCESS"
+                    echo "=========================================="
+                '''
+            }
+        }
+
+
+        // ==========================================
+        // 7. Push Docker Image
+        // ==========================================
+
+        stage('Push Image') {
+
+            steps {
+
+                withCredentials([
+
+                    usernamePassword(
+                        credentialsId: 'dockerhub-credentials',
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )
+
+                ]) {
+
+                    sh '''
+
+                        set -e
+
+                        echo "=========================================="
+                        echo "Docker Login"
+                        echo "=========================================="
+
+                        echo "${DOCKER_PASSWORD}" | docker login \
+                            "${REGISTRY}" \
+                            --username "${DOCKER_USERNAME}" \
+                            --password-stdin
+
+                        echo "=========================================="
+                        echo "Pushing Images"
+                        echo "=========================================="
+
+                        docker push "${API_IMAGE}"
+                        docker push "${WEB_IMAGE}"
+
+                        echo "=========================================="
+                        echo "Docker Logout"
+                        echo "=========================================="
+
+                        docker logout "${REGISTRY}"
+
+                        echo "=========================================="
+                        echo "Push SUCCESS"
+                        echo "=========================================="
+                    '''
+                }
+            }
+        }
+    }
+
+
+    // ==========================================
+    // Post Actions
+    // ==========================================
+
+    post {
+
+        // ==========================================
+        // CI SUCCESS → TRIGGER CD
+        // ==========================================
+
+        success {
+            echo """
+            ==========================================
+            PIPELINE SUCCESS
+            ==========================================
+            Application : devfolio
+            Branch      : ${env.BRANCH_NAME}
+            Build       : ${env.BUILD_NUMBER}
+            API Image   : ${env.API_IMAGE}
+            Web Image   : ${env.WEB_IMAGE}
+            Author      : ${env.AUTHOR_NAME}
+            ==========================================
+            """
+
+            script {
+                def cdJob = "devfolio-cd/${env.BRANCH_NAME}"
+
+                echo """
+                ==========================================
+                TRIGGER CD
+                ==========================================
+                CD Job : ${cdJob}
+                Tag    : ${env.BUILD_NUMBER}
+                ==========================================
+                """
+
+                build job: cdJob,
+                    parameters: [
+                        string(
+                            name: 'API_IMAGE_REPO',
+                            value: env.API_DOCKER_NAME
+                        ),
+                        string(
+                            name: 'WEB_IMAGE_REPO',
+                            value: env.WEB_DOCKER_NAME
+                        ),
+                        string(
+                            name: 'IMAGE_TAG',
+                            value: env.BUILD_NUMBER
+                        )
+                    ],
+                    wait: false
+            }
+        }
+
+        // ==========================================
+        // CI FAILURE
+        // ==========================================
+
+        failure {
+
+            echo """
+            ==========================================
+            PIPELINE FAILED
+            ==========================================
+
+            Application : devfolio
+            Branch      : ${env.BRANCH_NAME}
+            Build       : ${env.BUILD_NUMBER}
+
+            CD WILL NOT BE TRIGGERED
+
+            ==========================================
+            """
+        }
+
+        // ==========================================
+        // ALWAYS
+        // ==========================================
+
+        always {
+
+            script {
+
+                if (env.API_IMAGE && env.WEB_IMAGE) {
+
+                    sh """
+
+                        echo "=========================================="
+                        echo "Cleaning Local Docker Images"
+                        echo "=========================================="
+
+                        docker image rm \
+                            "${env.API_IMAGE}" \
+                            "${env.WEB_IMAGE}" \
+                            || true
+                    """
+                }
+            }
+        }
+    }
+}
