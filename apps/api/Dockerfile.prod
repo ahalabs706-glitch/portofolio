@@ -24,8 +24,10 @@ RUN npm prune --omit=dev
 
 FROM node:24-alpine
 
-ENV NODE_ENV=production
+# Pull in Alpine security fixes published after the base image was built.
+RUN apk upgrade --no-cache
 
+ENV NODE_ENV=production
 WORKDIR /workspace
 
 COPY --from=build --chown=node:node /workspace /workspace
