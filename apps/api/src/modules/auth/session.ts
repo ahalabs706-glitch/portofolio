@@ -34,7 +34,8 @@ function hash(value: string): string {
 function cookieOptions(maxAge: number) {
   return {
     httpOnly: true,
-    secure: config.cookieSecure,
+    //secure: config.cookieSecure, #sementara samapai pointing dns
+    secure: false,
     sameSite: "lax" as const,
     path: "/api/v1",
     maxAge,
