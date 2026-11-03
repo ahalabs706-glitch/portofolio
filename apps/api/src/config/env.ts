@@ -18,9 +18,16 @@ try {
   throw new Error("WEB_ORIGIN must be a valid absolute URL");
 }
 
+const trustProxy = Number(process.env.TRUST_PROXY ?? 0);
+
+if (!Number.isInteger(trustProxy) || trustProxy < 0) {
+  throw new Error("TRUST_PROXY must be a non-negative integer (number of proxy hops)");
+}
+
 export const config = {
   port,
   databaseUrl,
+  trustProxy,
   webOrigin: parsedWebOrigin.origin,
   cookieSecure: process.env.NODE_ENV === "production",
   nodeEnv: process.env.NODE_ENV ?? "development",

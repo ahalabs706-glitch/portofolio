@@ -24,6 +24,8 @@ services:
       PORT: 4000
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
       WEB_ORIGIN: ${WEB_ORIGIN:?Set WEB_ORIGIN in .env}
+      # Proxy hops in front of the API: nginx-lab -> web nginx -> api
+      TRUST_PROXY: 2
     depends_on:
       postgres:
         condition: service_healthy
