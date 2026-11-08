@@ -91,3 +91,5 @@ See [architecture](docs/architecture.md) and
 limitations. Production deployment files will be added in later phases.
 
 #test ci-cd
+#test ci web
+#expose api
