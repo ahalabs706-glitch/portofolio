@@ -21,7 +21,7 @@ services:
     image: ${API_IMAGE_REPO:?Set API_IMAGE_REPO}:${IMAGE_TAG:?Set IMAGE_TAG}
     environment:
       NODE_ENV: production
-      PORT: 4000
+      PORT: 4000:4000
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
       WEB_ORIGIN: ${WEB_ORIGIN:?Set WEB_ORIGIN in .env}
       # Proxy hops in front of the API: nginx-lab -> web nginx -> api
