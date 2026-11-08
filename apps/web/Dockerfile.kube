@@ -23,7 +23,7 @@ RUN apk upgrade --no-cache
 ENV API_PROXY_TARGET=http://13.211.77.56:4000
 
 # Rendered with envsubst by the nginx image entrypoint.
-COPY apps/web/nginx.conf.template /etc/nginx/templates/default.conf-web.template
+COPY apps/web/nginx.conf-web.template /etc/nginx/templates/default.conf.template
 COPY --from=build /workspace/apps/web/dist /usr/share/nginx/html
 
 EXPOSE 80
