@@ -10,13 +10,15 @@ if (!databaseUrl) {
   throw new Error("DATABASE_URL is required");
 }
 
-const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:5173";
-let parsedWebOrigin: URL;
-try {
-  parsedWebOrigin = new URL(webOrigin);
-} catch {
-  throw new Error("WEB_ORIGIN must be a valid absolute URL");
-}
+const webOrigins = (process.env.WEB_ORIGIN ?? "http://localhost:5173")
+  .split(",")
+  .map((origin) => {
+    try {
+      return new URL(origin.trim()).origin;
+    } catch {
+      throw new Error("WEB_ORIGIN must be a comma-separated list of valid absolute URLs");
+    }
+  });
 
 const trustProxy = Number(process.env.TRUST_PROXY ?? 0);
 
@@ -28,7 +30,7 @@ export const config = {
   port,
   databaseUrl,
   trustProxy,
-  webOrigin: parsedWebOrigin.origin,
+  webOrigins,
   cookieSecure: process.env.NODE_ENV === "production",
   nodeEnv: process.env.NODE_ENV ?? "development",
 };

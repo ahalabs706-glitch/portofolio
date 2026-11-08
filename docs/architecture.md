@@ -60,8 +60,8 @@ migrations with `npm run db:deploy --workspace @devfolio/api`; use
   only as SHA-256 hashes in the database and delivered via HttpOnly,
   SameSite=Lax cookies. Cookie sessions expire after seven days.
 - State-changing requests require the session's CSRF token and trusted origin.
-  Configure `WEB_ORIGIN` to the exact frontend origin; deploy behind HTTPS so
-  production cookies are Secure.
+  Configure `WEB_ORIGIN` as a comma-separated list of exact frontend origins;
+  deploy behind HTTPS so production cookies are Secure.
 - CV data is account-scoped, but the development deployment is not hardened
   for production. Use strong database credentials, TLS, backups, and
   operational monitoring before handling real user data.

@@ -124,7 +124,7 @@ export function requireTrustedOrigin(
   next: NextFunction,
 ) {
   const origin = request.get("origin");
-  if (origin && origin !== config.webOrigin) {
+  if (origin && !config.webOrigins.includes(origin)) {
     next(new HttpError(403, "ORIGIN_INVALID", "Request origin is not allowed."));
     return;
   }

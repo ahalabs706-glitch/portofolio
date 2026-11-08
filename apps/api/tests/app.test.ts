@@ -3,30 +3,35 @@ import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  prisma: {
-    $queryRaw: vi.fn(),
-    $transaction: vi.fn(),
-    user: {
-      create: vi.fn(),
-      findUnique: vi.fn(),
+const mocks = vi.hoisted(() => {
+  process.env.WEB_ORIGIN =
+    "http://localhost:5173,https://devfolio.wirayudha.cloud,http://3.106.229.162:3000";
+
+  return {
+    prisma: {
+      $queryRaw: vi.fn(),
+      $transaction: vi.fn(),
+      user: {
+        create: vi.fn(),
+        findUnique: vi.fn(),
+      },
+      session: {
+        create: vi.fn(),
+        delete: vi.fn(),
+        deleteMany: vi.fn(),
+        findFirst: vi.fn(),
+      },
+      cv: {
+        count: vi.fn(),
+        create: vi.fn(),
+        deleteMany: vi.fn(),
+        findFirst: vi.fn(),
+        findMany: vi.fn(),
+        updateMany: vi.fn(),
+      },
     },
-    session: {
-      create: vi.fn(),
-      delete: vi.fn(),
-      deleteMany: vi.fn(),
-      findFirst: vi.fn(),
-    },
-    cv: {
-      count: vi.fn(),
-      create: vi.fn(),
-      deleteMany: vi.fn(),
-      findFirst: vi.fn(),
-      findMany: vi.fn(),
-      updateMany: vi.fn(),
-    },
-  },
-}));
+  };
+});
 
 vi.mock("../src/database/client.js", () => ({ prisma: mocks.prisma }));
 
@@ -81,6 +86,15 @@ afterEach(() => {
 });
 
 describe("health endpoints", () => {
+  it("allows CORS requests from a configured web origin", async () => {
+    const response = await request(app)
+      .options("/api/v1/health")
+      .set("Origin", "http://3.106.229.162:3000")
+      .set("Access-Control-Request-Method", "GET");
+
+    expect(response.headers["access-control-allow-origin"]).toBe("http://3.106.229.162:3000");
+  });
+
   it("reports liveness without requiring database access", async () => {
     const response = await request(app).get("/api/v1/health");
 
@@ -152,6 +166,16 @@ describe("authentication", () => {
       .send({ email: "ada@example.com", password: "correct-horse-battery-staple" });
 
     expect(response.status).toBe(403);
+    expect(mocks.prisma.user.create).not.toHaveBeenCalled();
+  });
+
+  it("accepts registration from any configured trusted origin", async () => {
+    const response = await request(app)
+      .post("/api/v1/auth/register")
+      .set("Origin", "https://devfolio.wirayudha.cloud")
+      .send({ email: "not-an-email", password: "short" });
+
+    expect(response.status).toBe(400);
     expect(mocks.prisma.user.create).not.toHaveBeenCalled();
   });
 

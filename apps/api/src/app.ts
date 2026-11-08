@@ -21,7 +21,7 @@ if (config.trustProxy > 0) {
 app.use(helmet());
 app.use(
   cors({
-    origin: config.webOrigin,
+    origin: config.webOrigins,
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "X-CSRF-Token"],

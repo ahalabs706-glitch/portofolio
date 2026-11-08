@@ -44,8 +44,8 @@ docker compose down
 
 CV content is persisted in PostgreSQL. Session credentials are held in an
 HttpOnly cookie; write requests use a CSRF token. Use non-example database
-credentials outside local development and configure `WEB_ORIGIN` to the exact
-trusted frontend origin.
+credentials outside local development and configure `WEB_ORIGIN` as a
+comma-separated list of exact trusted frontend origins.
 
 To intentionally remove the local database volume, run
 `docker compose down --volumes` only after confirming that its data is
