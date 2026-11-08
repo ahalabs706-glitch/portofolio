@@ -92,7 +92,9 @@ describe("health endpoints", () => {
       .set("Origin", "http://3.106.229.162:3000")
       .set("Access-Control-Request-Method", "GET");
 
-    expect(response.headers["access-control-allow-origin"]).toBe("http://3.106.229.162:3000");
+    expect(response.headers["access-control-allow-origin"]).toBe(
+      "http://3.106.229.162:3000",
+    );
   });
 
   it("reports liveness without requiring database access", async () => {
