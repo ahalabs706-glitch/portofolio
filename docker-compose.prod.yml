@@ -46,6 +46,9 @@ services:
       devfolio:
         aliases:
           - devfolio-api
+      aha-network:
+        aliases:
+          - devfolio-api
 
   web:
     image: ${WEB_IMAGE_REPO:?Set WEB_IMAGE_REPO}:${IMAGE_TAG:?Set IMAGE_TAG}
